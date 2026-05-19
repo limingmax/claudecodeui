@@ -103,23 +103,38 @@ export async function executeSideEffects(
         // Wrap the real ws with a capturing decorator so we can collect the
         // assistant text from this non-autopilot query turn and feed it back
         // to the orchestrator once the query completes.
-        // The decorator dual-writes: all messages still reach the real ws
-        // (so the user sees the response), and text blocks are buffered locally.
+        // Why Proxy: WebSocketWriter is a class — its send/setSessionId/etc.
+        // live on the prototype. Object spread would drop them, breaking the
+        // SDK's writer.setSessionId callback. Proxy preserves prototype access
+        // while letting us intercept .send for text capture (dual-write: real
+        // ws still receives every message so the user sees the response).
         const capturedChunks: string[] = [];
-        const capturingWs: WebSocketWriter = {
-          ...deps.ws,
-          send(data: unknown): void {
-            // Forward to real ws first.
-            deps.ws.send(data);
-            // Capture assistant text from normalized messages.
-            if (data && typeof data === 'object') {
-              const msg = data as Record<string, unknown>;
-              if (msg.kind === 'text' && typeof msg.content === 'string') {
-                capturedChunks.push(msg.content);
-              }
+        const realWs = deps.ws;
+        const capturingWs = new Proxy(realWs, {
+          get(target, prop, receiver) {
+            if (prop === 'send') {
+              return (data: unknown) => {
+                target.send(data);
+                if (data && typeof data === 'object') {
+                  const msg = data as Record<string, unknown>;
+                  if (msg.kind === 'text' && typeof msg.content === 'string') {
+                    capturedChunks.push(msg.content);
+                  } else if (msg.type === 'assistant') {
+                    const inner = (msg as { message?: { content?: unknown } }).message;
+                    if (inner && Array.isArray(inner.content)) {
+                      for (const part of inner.content) {
+                        if (part && typeof (part as { text?: unknown }).text === 'string') {
+                          capturedChunks.push((part as { text: string }).text);
+                        }
+                      }
+                    }
+                  }
+                }
+              };
             }
+            return Reflect.get(target, prop, receiver);
           },
-        } as WebSocketWriter;
+        }) as WebSocketWriter;
 
         // Set purpose on orchestrator before the query so onSdkComplete routes correctly.
         getAutopilotOrchestrator().setCurrentPurpose(deps.sessionId, purpose);

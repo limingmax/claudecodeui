@@ -713,6 +713,10 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // AUTOPILOT 完成拦截点：在 cleanup 链路之前，把控制权交给 orchestrator。
     // 必须在 removeSession 之前拦截，否则 orchestrator 后续 resume 时找不到 session。
     if (options?.autopilot && capturedSessionId) {
+      // 仍然给前端发 complete 事件，否则前端 loading 永远卡住（autopilot 后续
+      // 阶段可能持续数十秒到分钟）。前端通过此事件解锁输入，autopilot 的进度
+      // 由后续的 autopilot.state_changed / autopilot.completed 事件单独驱动 UI。
+      ws.send(createNormalizedMessage({ kind: 'complete', exitCode: 0, isNewSession: !sessionId && !!command, sessionId: capturedSessionId, provider: 'claude' }));
       // 传入累积的 assistant 文本，供 probe/review/fix 解析使用。
       const assistantText = assistantTextChunks.join('');
       getAutopilotOrchestrator().onSdkComplete(capturedSessionId, assistantText);
