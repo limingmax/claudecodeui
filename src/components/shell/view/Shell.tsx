@@ -18,6 +18,8 @@ import ShellEmptyState from './subcomponents/ShellEmptyState';
 import ShellHeader from './subcomponents/ShellHeader';
 import ShellMinimalView from './subcomponents/ShellMinimalView';
 import TerminalShortcutsPanel from './subcomponents/TerminalShortcutsPanel';
+import ShellAutopilotPanel from './subcomponents/ShellAutopilotPanel';
+import type { ShellAutopilotToggles, ShellAutopilotLimits } from './subcomponents/ShellAutopilotPanel';
 
 type CliPromptOption = { number: string; label: string };
 

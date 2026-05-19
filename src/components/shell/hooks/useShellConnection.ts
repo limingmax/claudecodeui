@@ -25,6 +25,8 @@ type UseShellConnectionOptions = {
   clearTerminalScreen: () => void;
   setAuthUrl: (nextAuthUrl: string) => void;
   onOutputRef?: MutableRefObject<(() => void) | null>;
+  autopilotRef?: MutableRefObject<{ execution: boolean; idleMs: number; maxContinue: number } | null>;
+  onAutopilotEvent?: (payload: Record<string, unknown>) => void;
 };
 
 type UseShellConnectionResult = {
@@ -50,6 +52,8 @@ export function useShellConnection({
   clearTerminalScreen,
   setAuthUrl,
   onOutputRef,
+  autopilotRef,
+  onAutopilotEvent,
 }: UseShellConnectionOptions): UseShellConnectionResult {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -102,9 +106,16 @@ export function useShellConnection({
         if (nextAuthUrl) {
           setAuthUrl(nextAuthUrl);
         }
+        return;
+      }
+
+      const asRecord = message as Record<string, unknown>;
+      const kind = typeof asRecord.kind === 'string' ? asRecord.kind : '';
+      if (kind.startsWith('autopilot.') && onAutopilotEvent) {
+        onAutopilotEvent(asRecord);
       }
     },
-    [handleProcessCompletion, onOutputRef, setAuthUrl, terminalRef],
+    [handleProcessCompletion, onAutopilotEvent, onOutputRef, setAuthUrl, terminalRef],
   );
 
   const connectWebSocket = useCallback(
@@ -142,6 +153,7 @@ export function useShellConnection({
 
             currentFitAddon.fit();
 
+            const autopilotCfg = autopilotRef?.current;
             sendSocketMessage(socket, {
               type: 'init',
               projectPath: currentProject.fullPath || currentProject.path || '',
@@ -152,6 +164,7 @@ export function useShellConnection({
               rows: currentTerminal.rows,
               initialCommand: initialCommandRef.current,
               isPlainShell: isPlainShellRef.current,
+              ...(autopilotCfg?.execution ? { autopilot: autopilotCfg } : {}),
             });
           }, TERMINAL_INIT_DELAY_MS);
         };
@@ -180,6 +193,7 @@ export function useShellConnection({
       }
     },
     [
+      autopilotRef,
       clearTerminalScreen,
       fitAddonRef,
       handleSocketMessage,

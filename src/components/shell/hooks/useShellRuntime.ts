@@ -1,10 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 import type { UseShellRuntimeOptions, UseShellRuntimeResult } from '../types/types';
 import { copyTextToClipboard } from '../../../utils/clipboard';
 import { useShellConnection } from './useShellConnection';
 import { useShellTerminal } from './useShellTerminal';
+import { sendSocketMessage } from '../utils/socket';
+
+export interface ShellAutopilotRuntimeState {
+  state: string;
+  continueCount: number;
+}
+
+export interface UseShellRuntimeExtras {
+  autopilotRuntimeState: ShellAutopilotRuntimeState;
+  autopilotRef: React.MutableRefObject<{ execution: boolean; idleMs: number; maxContinue: number } | null>;
+  sendAutopilotAbort: () => void;
+}
 
 export function useShellRuntime({
   selectedProject,
@@ -16,7 +28,7 @@ export function useShellRuntime({
   isRestarting,
   onProcessComplete,
   onOutputRef,
-}: UseShellRuntimeOptions): UseShellRuntimeResult {
+}: UseShellRuntimeOptions): UseShellRuntimeResult & UseShellRuntimeExtras {
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -105,6 +117,21 @@ export function useShellRuntime({
     closeSocket,
   });
 
+  const autopilotRef = useRef<{ execution: boolean; idleMs: number; maxContinue: number } | null>(null);
+  const [autopilotRuntimeState, setAutopilotRuntimeState] = useState<ShellAutopilotRuntimeState>({ state: 'IDLE', continueCount: 0 });
+
+  const onAutopilotEvent = useCallback((payload: Record<string, unknown>) => {
+    const kind = payload.kind as string;
+    if (kind === 'autopilot.state_changed') {
+      const counters = payload.counters as { continue: number } | undefined;
+      setAutopilotRuntimeState({ state: payload.to as string, continueCount: counters?.continue ?? 0 });
+    }
+  }, []);
+
+  const sendAutopilotAbort = useCallback(() => {
+    sendSocketMessage(wsRef.current, { type: 'autopilot-abort' });
+  }, [wsRef]);
+
   const { isConnected, isConnecting, connectToShell, disconnectFromShell } = useShellConnection({
     wsRef,
     terminalRef,
@@ -120,6 +147,8 @@ export function useShellRuntime({
     clearTerminalScreen,
     setAuthUrl: setCurrentAuthUrl,
     onOutputRef,
+    autopilotRef,
+    onAutopilotEvent,
   });
 
   useEffect(() => {
@@ -162,5 +191,8 @@ export function useShellRuntime({
     disconnectFromShell,
     openAuthUrlInBrowser,
     copyAuthUrlToClipboard,
+    autopilotRuntimeState,
+    autopilotRef,
+    sendAutopilotAbort,
   };
 }

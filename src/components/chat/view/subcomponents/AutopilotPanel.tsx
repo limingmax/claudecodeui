@@ -83,14 +83,16 @@ function ToggleSwitch({ checked, onChange, disabled, id, label, hint }: ToggleSw
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
-          checked ? 'bg-primary' : 'bg-input',
+          'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-50',
+          checked
+            ? 'bg-blue-600 border-blue-700'
+            : 'bg-gray-300 border-gray-400 dark:bg-gray-600 dark:border-gray-500',
         )}
       >
         <span
           className={cn(
-            'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
-            checked ? 'translate-x-4' : 'translate-x-0',
+            'pointer-events-none block h-5 w-5 rounded-full bg-white shadow-md ring-0 transition-transform',
+            checked ? 'translate-x-5' : 'translate-x-0',
           )}
         />
       </button>

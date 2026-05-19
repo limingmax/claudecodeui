@@ -6,6 +6,8 @@ import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
 import { parseIncomingJsonObject } from '@/shared/utils.js';
+import { DEFAULT_PROBE_PROMPT } from '@/modules/autopilot/index.js';
+import { ShellAutopilotDriver } from '@/modules/autopilot-shell/index.js';
 
 type ShellIncomingMessage = {
   type?: string;
@@ -18,6 +20,11 @@ type ShellIncomingMessage = {
   provider?: string;
   initialCommand?: string;
   isPlainShell?: boolean;
+  autopilot?: {
+    execution?: boolean;
+    idleMs?: number;
+    maxContinue?: number;
+  };
 };
 
 type PtySessionEntry = {
@@ -27,6 +34,7 @@ type PtySessionEntry = {
   timeoutId: NodeJS.Timeout | null;
   projectPath: string;
   sessionId: string | null;
+  autopilotDriver: ShellAutopilotDriver | null;
 };
 
 const ptySessionsMap = new Map<string, PtySessionEntry>();
@@ -270,6 +278,25 @@ export function handleShellConnection(
           },
         });
 
+        const autopilotCfg = data.autopilot;
+        let autopilotDriver: ShellAutopilotDriver | null = null;
+        if (autopilotCfg?.execution === true) {
+          autopilotDriver = new ShellAutopilotDriver({
+            writeToPty: (d) => shellProcess?.write(d),
+            sendWsEvent: (payload) => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(payload));
+              }
+            },
+            stripAnsi: dependencies.stripAnsiSequences,
+            config: {
+              idleMs: typeof autopilotCfg.idleMs === 'number' && autopilotCfg.idleMs > 0 ? autopilotCfg.idleMs : 10000,
+              maxContinue: typeof autopilotCfg.maxContinue === 'number' && autopilotCfg.maxContinue > 0 ? autopilotCfg.maxContinue : 5,
+              probePrompt: DEFAULT_PROBE_PROMPT,
+            },
+          });
+        }
+
         ptySessionsMap.set(ptySessionKey, {
           pty: shellProcess,
           ws,
@@ -277,7 +304,12 @@ export function handleShellConnection(
           timeoutId: null,
           projectPath,
           sessionId,
+          autopilotDriver,
         });
+
+        if (autopilotDriver) {
+          autopilotDriver.start();
+        }
 
         shellProcess.onData((chunk) => {
           if (!ptySessionKey) {
@@ -353,6 +385,8 @@ export function handleShellConnection(
               })
             );
           }
+
+          session.autopilotDriver?.onPtyChunk(chunk);
         });
 
         shellProcess.onExit((exitCode) => {
@@ -407,6 +441,16 @@ export function handleShellConnection(
       if (data.type === 'input') {
         if (shellProcess) {
           shellProcess.write(readString(data.data));
+        }
+        if (ptySessionKey) {
+          ptySessionsMap.get(ptySessionKey)?.autopilotDriver?.onUserInput();
+        }
+        return;
+      }
+
+      if (data.type === 'autopilot-abort') {
+        if (ptySessionKey) {
+          ptySessionsMap.get(ptySessionKey)?.autopilotDriver?.abort();
         }
         return;
       }

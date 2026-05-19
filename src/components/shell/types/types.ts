@@ -15,6 +15,11 @@ export type ShellInitMessage = {
   rows: number;
   initialCommand: string | null | undefined;
   isPlainShell: boolean;
+  autopilot?: {
+    execution?: boolean;
+    idleMs?: number;
+    maxContinue?: number;
+  };
 };
 
 export type ShellResizeMessage = {
@@ -28,7 +33,15 @@ export type ShellInputMessage = {
   data: string;
 };
 
-export type ShellOutgoingMessage = ShellInitMessage | ShellResizeMessage | ShellInputMessage;
+export type ShellAutopilotAbortMessage = {
+  type: 'autopilot-abort';
+};
+
+export type ShellOutgoingMessage =
+  | ShellInitMessage
+  | ShellResizeMessage
+  | ShellInputMessage
+  | ShellAutopilotAbortMessage;
 
 export type ShellIncomingMessage =
   | { type: 'output'; data: string }
