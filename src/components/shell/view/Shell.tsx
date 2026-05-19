@@ -79,16 +79,19 @@ export default function Shell({
     onOutputRef,
   });
 
-  const [autopilotToggles, setAutopilotToggles] = useState<ShellAutopilotToggles>({ execution: true });
-  const [autopilotLimits, setAutopilotLimits] = useState<ShellAutopilotLimits>({ idleMs: 10000, maxContinue: 5 });
+  const [autopilotToggles, setAutopilotToggles] = useState<ShellAutopilotToggles>({ execution: true, reviewFix: true, commit: true });
+  const [autopilotLimits, setAutopilotLimits] = useState<ShellAutopilotLimits>({ idleMs: 10000, maxContinue: 5, maxReviewFix: 5 });
 
   useEffect(() => {
     autopilotRef.current = {
       execution: autopilotToggles.execution,
+      reviewFix: autopilotToggles.reviewFix,
+      commit: autopilotToggles.commit,
       idleMs: autopilotLimits.idleMs,
       maxContinue: autopilotLimits.maxContinue,
+      maxReviewFix: autopilotLimits.maxReviewFix,
     };
-  }, [autopilotRef, autopilotToggles.execution, autopilotLimits.idleMs, autopilotLimits.maxContinue]);
+  }, [autopilotRef, autopilotToggles.execution, autopilotToggles.reviewFix, autopilotToggles.commit, autopilotLimits.idleMs, autopilotLimits.maxContinue, autopilotLimits.maxReviewFix]);
 
   // Hot-attach/detach driver when toggle flips while connected.
   const prevExecutionRef = useRef(autopilotToggles.execution);
@@ -101,13 +104,19 @@ export default function Shell({
     const next = autopilotToggles.execution;
     if (prev !== next) {
       if (next) {
-        sendAutopilotAttach(autopilotLimits.idleMs, autopilotLimits.maxContinue);
+        sendAutopilotAttach({
+          idleMs: autopilotLimits.idleMs,
+          maxContinue: autopilotLimits.maxContinue,
+          maxReviewFix: autopilotLimits.maxReviewFix,
+          reviewFix: autopilotToggles.reviewFix,
+          commit: autopilotToggles.commit,
+        });
       } else {
         sendAutopilotAbort();
       }
       prevExecutionRef.current = next;
     }
-  }, [autopilotToggles.execution, autopilotLimits.idleMs, autopilotLimits.maxContinue, isConnected, sendAutopilotAttach, sendAutopilotAbort]);
+  }, [autopilotToggles.execution, autopilotToggles.reviewFix, autopilotToggles.commit, autopilotLimits.idleMs, autopilotLimits.maxContinue, autopilotLimits.maxReviewFix, isConnected, sendAutopilotAttach, sendAutopilotAbort]);
 
   const handleAutopilotAbort = useCallback(() => {
     sendAutopilotAbort();

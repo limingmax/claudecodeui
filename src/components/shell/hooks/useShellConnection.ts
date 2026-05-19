@@ -25,7 +25,14 @@ type UseShellConnectionOptions = {
   clearTerminalScreen: () => void;
   setAuthUrl: (nextAuthUrl: string) => void;
   onOutputRef?: MutableRefObject<(() => void) | null>;
-  autopilotRef?: MutableRefObject<{ execution: boolean; idleMs: number; maxContinue: number } | null>;
+  autopilotRef?: MutableRefObject<{
+    execution: boolean;
+    reviewFix: boolean;
+    commit: boolean;
+    idleMs: number;
+    maxContinue: number;
+    maxReviewFix: number;
+  } | null>;
   onAutopilotEvent?: (payload: Record<string, unknown>) => void;
 };
 

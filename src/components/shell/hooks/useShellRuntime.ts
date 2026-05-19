@@ -10,13 +10,27 @@ import { sendSocketMessage } from '../utils/socket';
 export interface ShellAutopilotRuntimeState {
   state: string;
   continueCount: number;
+  reviewFixCount: number;
 }
 
 export interface UseShellRuntimeExtras {
   autopilotRuntimeState: ShellAutopilotRuntimeState;
-  autopilotRef: React.MutableRefObject<{ execution: boolean; idleMs: number; maxContinue: number } | null>;
+  autopilotRef: React.MutableRefObject<{
+    execution: boolean;
+    reviewFix: boolean;
+    commit: boolean;
+    idleMs: number;
+    maxContinue: number;
+    maxReviewFix: number;
+  } | null>;
   sendAutopilotAbort: () => void;
-  sendAutopilotAttach: (idleMs: number, maxContinue: number) => void;
+  sendAutopilotAttach: (opts: {
+    idleMs: number;
+    maxContinue: number;
+    maxReviewFix: number;
+    reviewFix: boolean;
+    commit: boolean;
+  }) => void;
 }
 
 export function useShellRuntime({
@@ -118,14 +132,25 @@ export function useShellRuntime({
     closeSocket,
   });
 
-  const autopilotRef = useRef<{ execution: boolean; idleMs: number; maxContinue: number } | null>(null);
-  const [autopilotRuntimeState, setAutopilotRuntimeState] = useState<ShellAutopilotRuntimeState>({ state: 'IDLE', continueCount: 0 });
+  const autopilotRef = useRef<{
+    execution: boolean;
+    reviewFix: boolean;
+    commit: boolean;
+    idleMs: number;
+    maxContinue: number;
+    maxReviewFix: number;
+  } | null>(null);
+  const [autopilotRuntimeState, setAutopilotRuntimeState] = useState<ShellAutopilotRuntimeState>({ state: 'IDLE', continueCount: 0, reviewFixCount: 0 });
 
   const onAutopilotEvent = useCallback((payload: Record<string, unknown>) => {
     const kind = payload.kind as string;
     if (kind === 'autopilot.state_changed') {
-      const counters = payload.counters as { continue: number } | undefined;
-      setAutopilotRuntimeState({ state: payload.to as string, continueCount: counters?.continue ?? 0 });
+      const counters = payload.counters as { continue: number; reviewFix: number } | undefined;
+      setAutopilotRuntimeState({
+        state: payload.to as string,
+        continueCount: counters?.continue ?? 0,
+        reviewFixCount: counters?.reviewFix ?? 0,
+      });
     }
   }, []);
 
@@ -133,8 +158,14 @@ export function useShellRuntime({
     sendSocketMessage(wsRef.current, { type: 'autopilot-abort' });
   }, [wsRef]);
 
-  const sendAutopilotAttach = useCallback((idleMs: number, maxContinue: number) => {
-    sendSocketMessage(wsRef.current, { type: 'autopilot-attach', idleMs, maxContinue });
+  const sendAutopilotAttach = useCallback((opts: {
+    idleMs: number;
+    maxContinue: number;
+    maxReviewFix: number;
+    reviewFix: boolean;
+    commit: boolean;
+  }) => {
+    sendSocketMessage(wsRef.current, { type: 'autopilot-attach', ...opts });
   }, [wsRef]);
 
   const { isConnected, isConnecting, connectToShell, disconnectFromShell } = useShellConnection({

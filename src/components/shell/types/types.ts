@@ -19,6 +19,9 @@ export type ShellInitMessage = {
     execution?: boolean;
     idleMs?: number;
     maxContinue?: number;
+    reviewFix?: boolean;
+    commit?: boolean;
+    maxReviewFix?: number;
   };
 };
 
@@ -41,6 +44,9 @@ export type ShellAutopilotAttachMessage = {
   type: 'autopilot-attach';
   idleMs?: number;
   maxContinue?: number;
+  reviewFix?: boolean;
+  commit?: boolean;
+  maxReviewFix?: number;
 };
 
 export type ShellOutgoingMessage =

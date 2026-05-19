@@ -7,7 +7,11 @@ import { WebSocket, type RawData } from 'ws';
 
 import { parseIncomingJsonObject } from '@/shared/utils.js';
 import { DEFAULT_PROBE_PROMPT } from '@/modules/autopilot/index.js';
-import { ShellAutopilotDriver } from '@/modules/autopilot-shell/index.js';
+import {
+  ShellAutopilotDriver,
+  DEFAULT_SHELL_REVIEW_PROMPT,
+  performTerminalCommit,
+} from '@/modules/autopilot-shell/index.js';
 
 type ShellIncomingMessage = {
   type?: string;
@@ -22,10 +26,16 @@ type ShellIncomingMessage = {
   isPlainShell?: boolean;
   idleMs?: number;
   maxContinue?: number;
+  reviewFix?: boolean;
+  commit?: boolean;
+  maxReviewFix?: number;
   autopilot?: {
     execution?: boolean;
     idleMs?: number;
     maxContinue?: number;
+    reviewFix?: boolean;
+    commit?: boolean;
+    maxReviewFix?: number;
   };
 };
 
@@ -283,7 +293,13 @@ export function handleShellConnection(
         const autopilotCfg = data.autopilot;
         let autopilotDriver: ShellAutopilotDriver | null = null;
         if (autopilotCfg?.execution === true) {
-          console.log('[autopilot-shell] attaching driver: idleMs=' + autopilotCfg.idleMs + ' maxContinue=' + autopilotCfg.maxContinue);
+          const apIdleMs = typeof autopilotCfg.idleMs === 'number' && autopilotCfg.idleMs > 0 ? autopilotCfg.idleMs : 10000;
+          const apMaxContinue = typeof autopilotCfg.maxContinue === 'number' && autopilotCfg.maxContinue > 0 ? autopilotCfg.maxContinue : 5;
+          const apMaxReviewFix = typeof autopilotCfg.maxReviewFix === 'number' && autopilotCfg.maxReviewFix > 0 ? autopilotCfg.maxReviewFix : 5;
+          const apReviewFix = autopilotCfg.reviewFix === true;
+          const apCommit = autopilotCfg.commit === true;
+          console.log('[autopilot-shell] attaching driver: idleMs=' + apIdleMs + ' maxContinue=' + apMaxContinue + ' reviewFix=' + apReviewFix + ' commit=' + apCommit);
+          const cwdForCommit = resolvedProjectPath;
           autopilotDriver = new ShellAutopilotDriver({
             writeToPty: (d) => shellProcess?.write(d),
             sendWsEvent: (payload) => {
@@ -293,10 +309,20 @@ export function handleShellConnection(
             },
             stripAnsi: dependencies.stripAnsiSequences,
             config: {
-              idleMs: typeof autopilotCfg.idleMs === 'number' && autopilotCfg.idleMs > 0 ? autopilotCfg.idleMs : 10000,
-              maxContinue: typeof autopilotCfg.maxContinue === 'number' && autopilotCfg.maxContinue > 0 ? autopilotCfg.maxContinue : 5,
+              idleMs: apIdleMs,
+              maxContinue: apMaxContinue,
+              maxReviewFix: apMaxReviewFix,
               probePrompt: DEFAULT_PROBE_PROMPT,
+              reviewPrompt: DEFAULT_SHELL_REVIEW_PROMPT,
+              reviewFixEnabled: apReviewFix,
+              commitEnabled: apCommit,
             },
+            ...(apCommit
+              ? {
+                  performCommit: ({ commitMessage }) =>
+                    performTerminalCommit({ commitMessage, cwd: cwdForCommit }),
+                }
+              : {}),
           });
         }
 
@@ -468,7 +494,11 @@ export function handleShellConnection(
         }
         const idleMsCfg = typeof data.idleMs === 'number' && data.idleMs > 0 ? data.idleMs : 10000;
         const maxContinueCfg = typeof data.maxContinue === 'number' && data.maxContinue > 0 ? data.maxContinue : 5;
-        console.log('[autopilot-shell] hot-attaching driver: idleMs=' + idleMsCfg + ' maxContinue=' + maxContinueCfg);
+        const maxReviewFixCfg = typeof data.maxReviewFix === 'number' && data.maxReviewFix > 0 ? data.maxReviewFix : 5;
+        const reviewFixCfg = data.reviewFix === true;
+        const commitCfg = data.commit === true;
+        console.log('[autopilot-shell] hot-attaching driver: idleMs=' + idleMsCfg + ' maxContinue=' + maxContinueCfg + ' reviewFix=' + reviewFixCfg + ' commit=' + commitCfg);
+        const cwdForAttach = session.projectPath ? session.projectPath : process.cwd();
         const driver = new ShellAutopilotDriver({
           writeToPty: (d) => shellProcess?.write(d),
           sendWsEvent: (payload) => {
@@ -480,8 +510,18 @@ export function handleShellConnection(
           config: {
             idleMs: idleMsCfg,
             maxContinue: maxContinueCfg,
+            maxReviewFix: maxReviewFixCfg,
             probePrompt: DEFAULT_PROBE_PROMPT,
+            reviewPrompt: DEFAULT_SHELL_REVIEW_PROMPT,
+            reviewFixEnabled: reviewFixCfg,
+            commitEnabled: commitCfg,
           },
+          ...(commitCfg
+            ? {
+                performCommit: ({ commitMessage }) =>
+                  performTerminalCommit({ commitMessage, cwd: cwdForAttach }),
+              }
+            : {}),
         });
         session.autopilotDriver = driver;
         driver.start();
