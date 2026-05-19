@@ -111,6 +111,21 @@ CREATE TABLE IF NOT EXISTS app_config (
 );
 `;
 
+export const AUTOPILOT_HISTORY_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS autopilot_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    from_state TEXT NOT NULL,
+    to_state TEXT NOT NULL,
+    event TEXT NOT NULL,
+    reason TEXT,
+    counters_json TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_autopilot_history_session ON autopilot_history(session_id);
+CREATE INDEX IF NOT EXISTS idx_autopilot_history_created ON autopilot_history(created_at);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;

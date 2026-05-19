@@ -1,5 +1,6 @@
 export { initializeDatabase } from '@/modules/database/init-db.js';
 export { apiKeysDb } from '@/modules/database/repositories/api-keys.js';
+export { autopilotHistoryDb } from '@/modules/database/repositories/autopilot-history.db.js';
 export { appConfigDb } from '@/modules/database/repositories/app-config.js';
 export { credentialsDb } from '@/modules/database/repositories/credentials.js';
 export { githubTokensDb } from '@/modules/database/repositories/github-tokens.js';

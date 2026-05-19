@@ -68,6 +68,8 @@ interface UseChatRealtimeHandlersArgs {
   onNavigateToSession?: (sessionId: string, options?: SessionNavigationOptions) => void;
   onWebSocketReconnect?: () => void;
   sessionStore: SessionStore;
+  // Optional autopilot event handler — provided by useAutopilotState
+  onAutopilotEvent?: (msg: LatestChatMessage) => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -94,6 +96,7 @@ export function useChatRealtimeHandlers({
   onNavigateToSession,
   onWebSocketReconnect,
   sessionStore,
+  onAutopilotEvent,
 }: UseChatRealtimeHandlersArgs) {
   const paletteOps = usePaletteOps();
   const lastProcessedMessageRef = useRef<LatestChatMessage | null>(null);
@@ -176,6 +179,12 @@ export function useChatRealtimeHandlers({
     /* ---------------------------------------------------------------- */
 
     const sid = msg.sessionId || activeViewSessionId;
+
+    // --- Autopilot events: route to handler before any other processing ---
+    if (typeof msg.kind === 'string' && msg.kind.startsWith('autopilot.')) {
+      onAutopilotEvent?.(msg);
+      return;
+    }
 
     // --- Streaming: buffer for performance ---
     if (msg.kind === 'stream_delta') {
@@ -405,5 +414,6 @@ export function useChatRealtimeHandlers({
     onWebSocketReconnect,
     sessionStore,
     paletteOps,
+    onAutopilotEvent,
   ]);
 }

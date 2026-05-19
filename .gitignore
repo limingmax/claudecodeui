@@ -142,3 +142,10 @@ tasks/
 
 # Git worktrees
 .worktrees/
+
+# OMC runtime state (specs/plans under .omc/ remain tracked deliberately)
+.omc/state/
+.omc/project-memory.json
+.omc/notepad.md
+.omc/research/
+.omc/logs/

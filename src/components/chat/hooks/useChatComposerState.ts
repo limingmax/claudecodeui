@@ -62,6 +62,13 @@ interface UseChatComposerStateArgs {
   setClaudeStatus: (status: { text: string; tokens: number; can_interrupt: boolean } | null) => void;
   setIsUserScrolledUp: (isScrolledUp: boolean) => void;
   setPendingPermissionRequests: Dispatch<SetStateAction<PendingPermissionRequest[]>>;
+  // Autopilot options injected into claude-command when toggles are active
+  autopilotOptions?: {
+    execution: boolean;
+    reviewFix: boolean;
+    commit: boolean;
+    limits: { maxContinue: number; maxReviewFix: number; maxNetworkRetry: number };
+  };
 }
 
 interface MentionableFile {
@@ -131,6 +138,7 @@ export function useChatComposerState({
   setClaudeStatus,
   setIsUserScrolledUp,
   setPendingPermissionRequests,
+  autopilotOptions,
 }: UseChatComposerStateArgs) {
   const [input, setInput] = useState(() => {
     if (typeof window !== 'undefined' && selectedProject) {
@@ -658,6 +666,10 @@ export function useChatComposerState({
             model: claudeModel,
             sessionSummary,
             images: uploadedImages,
+            // Autopilot options — only included when at least one toggle is active
+            ...(autopilotOptions && (autopilotOptions.execution || autopilotOptions.reviewFix || autopilotOptions.commit)
+              ? { autopilot: autopilotOptions }
+              : {}),
           },
         });
       }
@@ -703,6 +715,7 @@ export function useChatComposerState({
       setIsUserScrolledUp,
       slashCommands,
       thinkingMode,
+      autopilotOptions,
     ],
   );
 

@@ -11,9 +11,11 @@ import { useChatSessionState } from '../hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '../hooks/useChatComposerState';
 import { useSessionStore } from '../../../stores/useSessionStore';
+import { useAutopilotState } from '../hooks/useAutopilotState';
 
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import ChatComposer from './subcomponents/ChatComposer';
+import AutopilotPanel from './subcomponents/AutopilotPanel';
 
 
 type PendingViewSession = {
@@ -128,6 +130,8 @@ function ChatInterface({
     sessionStore,
   });
 
+  const { snapshot: autopilotSnapshot, setToggles: setAutopilotToggles, setLimits: setAutopilotLimits, handleAutopilotEvent } = useAutopilotState();
+
   const {
     input,
     setInput,
@@ -202,6 +206,12 @@ function ChatInterface({
     setClaudeStatus,
     setIsUserScrolledUp,
     setPendingPermissionRequests,
+    autopilotOptions: {
+      execution: autopilotSnapshot.toggles.execution,
+      reviewFix: autopilotSnapshot.toggles.reviewFix,
+      commit: autopilotSnapshot.toggles.commit,
+      limits: autopilotSnapshot.limits,
+    },
   });
 
   // On WebSocket reconnect, re-fetch the current session's messages from the server
@@ -239,6 +249,7 @@ function ChatInterface({
     onNavigateToSession,
     onWebSocketReconnect: handleWebSocketReconnect,
     sessionStore,
+    onAutopilotEvent: handleAutopilotEvent,
   });
 
   useEffect(() => {
@@ -342,6 +353,17 @@ function ChatInterface({
           showRawParameters={showRawParameters}
           showThinking={showThinking}
           selectedProject={selectedProject}
+        />
+
+        <AutopilotPanel
+          state={autopilotSnapshot.state}
+          counters={autopilotSnapshot.counters}
+          limits={autopilotSnapshot.limits}
+          toggles={autopilotSnapshot.toggles}
+          pendingPermission={autopilotSnapshot.pendingPermission}
+          onTogglesChange={setAutopilotToggles}
+          onLimitsChange={setAutopilotLimits}
+          disabled={isLoading}
         />
 
         <ChatComposer

@@ -86,7 +86,16 @@ export type MessageKind =
   | 'permission_cancelled'
   | 'session_created'
   | 'interactive_prompt'
-  | 'task_notification';
+  | 'task_notification'
+  // Autopilot lifecycle events (autopilot.* namespace)
+  | 'autopilot.state_changed'
+  | 'autopilot.iteration'
+  | 'autopilot.limit_reached'
+  | 'autopilot.completion_probe_result'
+  | 'autopilot.completed'
+  | 'autopilot.failed'
+  | 'autopilot.cancelled'
+  | 'autopilot.status_snapshot';
 
 /**
  * Provider-neutral message envelope used in REST responses and realtime channels.

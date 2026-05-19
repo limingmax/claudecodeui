@@ -1,4 +1,5 @@
 import type { WebSocket } from 'ws';
+import path from 'node:path';
 
 import { connectedClients } from '@/modules/websocket/services/websocket-state.service.js';
 import { WebSocketWriter } from '@/modules/websocket/services/websocket-writer.service.js';
@@ -8,11 +9,45 @@ import type {
   LLMProvider,
 } from '@/shared/types.js';
 import { createNormalizedMessage, parseIncomingJsonObject } from '@/shared/utils.js';
+import { getAutopilotOrchestrator } from '@/modules/autopilot/index.js';
+import type { AutopilotStartOptions } from '@/modules/autopilot/index.js';
+import type { AutopilotToggles, AutopilotLimits } from '@/modules/autopilot/index.js';
+
+// ---------------------------------------------------------------------------
+// cwd path validation for autopilot (security: prevent path traversal)
+// ---------------------------------------------------------------------------
+
+const ALLOWED_WORKSPACE_ROOT = path.resolve(
+  process.env['WORKSPACE_ROOT'] || process.cwd(),
+);
+
+function validateCwd(raw: string): string {
+  const resolved = path.resolve(raw);
+  const rootWithSep = ALLOWED_WORKSPACE_ROOT + path.sep;
+  if (resolved !== ALLOWED_WORKSPACE_ROOT && !resolved.startsWith(rootWithSep)) {
+    throw new Error(`cwd "${resolved}" is outside allowed workspace root "${ALLOWED_WORKSPACE_ROOT}"`);
+  }
+  return resolved;
+}
+
+// ---------------------------------------------------------------------------
+// Autopilot options shape expected from the WS client
+// ---------------------------------------------------------------------------
+
+interface AutopilotWsOptions {
+  execution?: boolean;
+  reviewFix?: boolean;
+  commit?: boolean;
+  limits?: Partial<Pick<AutopilotLimits, 'maxContinue' | 'maxReviewFix' | 'maxNetworkRetry'>>;
+}
 
 type ChatIncomingMessage = AnyRecord & {
   type?: string;
   command?: string;
-  options?: AnyRecord;
+  options?: AnyRecord & {
+    autopilot?: AutopilotWsOptions;
+    cwd?: string;
+  };
   provider?: string;
   sessionId?: string;
   requestId?: string;
@@ -115,6 +150,73 @@ export function handleChatConnection(
       }
 
       if (messageType === 'claude-command') {
+        const autopilotOpts = data.options?.autopilot as AutopilotWsOptions | undefined;
+        const isAutopilot =
+          autopilotOpts != null &&
+          (autopilotOpts.execution === true ||
+            autopilotOpts.reviewFix === true ||
+            autopilotOpts.commit === true);
+
+        if (isAutopilot) {
+          const orchestrator = getAutopilotOrchestrator();
+          const rawCwd = typeof data.options?.cwd === 'string' ? data.options.cwd : process.cwd();
+          const cwd = validateCwd(rawCwd);
+
+          const toggles: AutopilotToggles = {
+            execution: autopilotOpts.execution === true,
+            reviewFix: autopilotOpts.reviewFix === true,
+            commit: autopilotOpts.commit === true,
+          };
+
+          const limits: Partial<AutopilotLimits> = {};
+          if (autopilotOpts.limits?.maxContinue != null) {
+            limits.maxContinue = autopilotOpts.limits.maxContinue;
+          }
+          if (autopilotOpts.limits?.maxReviewFix != null) {
+            limits.maxReviewFix = autopilotOpts.limits.maxReviewFix;
+          }
+          if (autopilotOpts.limits?.maxNetworkRetry != null) {
+            limits.maxNetworkRetry = autopilotOpts.limits.maxNetworkRetry;
+          }
+
+          const startOpts: AutopilotStartOptions = {
+            toggles,
+            limits,
+            cwd,
+            cleanup: async (_reason: string) => {
+              // Cleanup is handled by the SDK session cleanup chain.
+              // The orchestrator calls this after the full autopilot lifecycle ends.
+            },
+          };
+
+          // Register intent before the SDK call so bindIntent() can fire when
+          // session_created arrives (writer.setSessionId is called by the SDK).
+          orchestrator.registerIntent(writer, startOpts);
+
+          // Wrap writer.setSessionId so we can intercept the first session_created
+          // and bind the pending intent to the real sessionId.
+          const originalSetSessionId = writer.setSessionId.bind(writer);
+          let intentBound = false;
+          writer.setSessionId = (sessionId: string) => {
+            originalSetSessionId(sessionId);
+            if (!intentBound) {
+              intentBound = true;
+              orchestrator.bindIntent(writer, sessionId);
+            }
+          };
+
+          try {
+            await dependencies.queryClaudeSDK(data.command ?? '', data.options, writer);
+          } catch (err) {
+            // If the SDK call fails before session_created, cancel the pending intent.
+            if (!intentBound) {
+              orchestrator.cancelIntent(writer);
+            }
+            throw err;
+          }
+          return;
+        }
+
         await dependencies.queryClaudeSDK(data.command ?? '', data.options, writer);
         return;
       }

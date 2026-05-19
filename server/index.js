@@ -67,6 +67,8 @@ import pluginsRoutes from './routes/plugins.js';
 import providerRoutes from './modules/providers/provider.routes.js';
 import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './utils/plugin-process-manager.js';
 import { initializeDatabase, projectsDb } from './modules/database/index.js';
+import { getAutopilotOrchestrator } from './modules/autopilot/services/orchestrator.service.js';
+import { setCommitQueryFn } from './modules/autopilot/services/commit.service.js';
 import { configureWebPush } from './services/vapid-keys.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
@@ -1444,6 +1446,10 @@ async function startServer() {
     try {
         // Initialize authentication database
         await initializeDatabase();
+
+        // Inject queryClaudeSDK into autopilot services (must run after imports resolve).
+        getAutopilotOrchestrator().setQueryFn(queryClaudeSDK);
+        setCommitQueryFn(queryClaudeSDK);
 
         // Configure Web Push (VAPID keys)
         configureWebPush();

@@ -28,6 +28,7 @@ import {
 import { sessionsService } from './modules/providers/services/sessions.service.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { createNormalizedMessage } from './shared/utils.js';
+import { getAutopilotOrchestrator } from './modules/autopilot/services/orchestrator.service.js';
 
 const activeSessions = new Map();
 const pendingToolApprovals = new Map();
@@ -569,7 +570,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       }));
 
       const decision = await waitForToolApproval(requestId, {
-        timeoutMs: requiresInteraction ? 0 : undefined,
+        timeoutMs: requiresInteraction ? 0 : (typeof options.toolApprovalTimeoutMs === 'number' ? options.toolApprovalTimeoutMs : undefined),
         signal: context?.signal,
         metadata: {
           _sessionId: capturedSessionId || sessionId || null,
@@ -625,6 +626,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
       });
     }
 
+    // Notify autopilot (or any caller) that a query instance was created.
+    if (typeof options.onQueryCreated === 'function') {
+      options.onQueryCreated(queryInstance);
+    }
+
     // Restore immediately — Query constructor already captured the value
     if (prevStreamTimeout !== undefined) {
       process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = prevStreamTimeout;
@@ -639,6 +645,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     // Process streaming messages
     console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
+    // Accumulate assistant text for autopilot probe/review parsing.
+    const assistantTextChunks = [];
     for await (const message of queryInstance) {
       // Capture session ID from first message
       if (message.session_id && !capturedSessionId) {
@@ -674,6 +682,21 @@ async function queryClaudeSDK(command, options = {}, ws) {
         ws.send(msg);
       }
 
+      // Accumulate assistant text for autopilot probe/review/fix parsing.
+      // SDK message types: 'assistant' with message.content array of text blocks,
+      // or 'content_block_delta' with delta.text for streaming deltas.
+      if (options?.autopilot) {
+        if (message.type === 'assistant' && Array.isArray(message.message?.content)) {
+          for (const part of message.message.content) {
+            if (part && typeof part.text === 'string') {
+              assistantTextChunks.push(part.text);
+            }
+          }
+        } else if (message.type === 'content_block_delta' && typeof message.delta?.text === 'string') {
+          assistantTextChunks.push(message.delta.text);
+        }
+      }
+
       // Extract and send token budget updates from result messages
       if (message.type === 'result') {
         const models = Object.keys(message.modelUsage || {});
@@ -685,6 +708,15 @@ async function queryClaudeSDK(command, options = {}, ws) {
           ws.send(createNormalizedMessage({ kind: 'status', text: 'token_budget', tokenBudget: tokenBudgetData, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
         }
       }
+    }
+
+    // AUTOPILOT 完成拦截点：在 cleanup 链路之前，把控制权交给 orchestrator。
+    // 必须在 removeSession 之前拦截，否则 orchestrator 后续 resume 时找不到 session。
+    if (options?.autopilot && capturedSessionId) {
+      // 传入累积的 assistant 文本，供 probe/review/fix 解析使用。
+      const assistantText = assistantTextChunks.join('');
+      getAutopilotOrchestrator().onSdkComplete(capturedSessionId, assistantText);
+      return;
     }
 
     // Clean up session on completion
@@ -708,6 +740,12 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
   } catch (error) {
     console.error('SDK query error:', error);
+
+    // AUTOPILOT 错误拦截点：把错误路由给 orchestrator，跳过原 cleanup 链路。
+    if (options?.autopilot && capturedSessionId) {
+      getAutopilotOrchestrator().onSdkError(capturedSessionId, error);
+      return;
+    }
 
     // Clean up session on error
     if (capturedSessionId) {
@@ -741,6 +779,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
  * @returns {boolean} True if session was aborted, false if not found
  */
 async function abortClaudeSDKSession(sessionId) {
+  // AUTOPILOT 委托分支：如果是 autopilot session，交给 orchestrator 处理三步 abort 协议。
+  const orchestrator = getAutopilotOrchestrator();
+  if (orchestrator.getSnapshot(sessionId) !== null) {
+    await orchestrator.abort(sessionId);
+    return true;
+  }
+
   const session = getSession(sessionId);
 
   if (!session) {
