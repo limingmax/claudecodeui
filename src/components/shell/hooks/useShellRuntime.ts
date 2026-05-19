@@ -16,6 +16,7 @@ export interface UseShellRuntimeExtras {
   autopilotRuntimeState: ShellAutopilotRuntimeState;
   autopilotRef: React.MutableRefObject<{ execution: boolean; idleMs: number; maxContinue: number } | null>;
   sendAutopilotAbort: () => void;
+  sendAutopilotAttach: (idleMs: number, maxContinue: number) => void;
 }
 
 export function useShellRuntime({
@@ -132,6 +133,10 @@ export function useShellRuntime({
     sendSocketMessage(wsRef.current, { type: 'autopilot-abort' });
   }, [wsRef]);
 
+  const sendAutopilotAttach = useCallback((idleMs: number, maxContinue: number) => {
+    sendSocketMessage(wsRef.current, { type: 'autopilot-attach', idleMs, maxContinue });
+  }, [wsRef]);
+
   const { isConnected, isConnecting, connectToShell, disconnectFromShell } = useShellConnection({
     wsRef,
     terminalRef,
@@ -194,5 +199,6 @@ export function useShellRuntime({
     autopilotRuntimeState,
     autopilotRef,
     sendAutopilotAbort,
+    sendAutopilotAttach,
   };
 }

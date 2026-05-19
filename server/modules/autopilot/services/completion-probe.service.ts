@@ -23,9 +23,42 @@ const NOT_COMPLETED_PATTERNS = [
 ];
 
 /**
+ * Returns the latest (rightmost) match index for any pattern in the list,
+ * or -1 if no pattern matches.
+ *
+ * The probe response buffer often contains the echoed prompt (e.g. PTY echo
+ * in terminal mode) followed by the model's actual answer. The prompt itself
+ * may include literal answer tokens like "COMPLETED" / "NOT_COMPLETED",
+ * so a left-to-right match would pick up the prompt echo and produce the
+ * wrong verdict. Picking the rightmost match biases toward the model's
+ * latest output, which is the actual answer.
+ */
+function findLatestMatchIndex(text: string, patterns: RegExp[]): number {
+  let latest = -1;
+  for (const pattern of patterns) {
+    const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
+    const globalPattern = new RegExp(pattern.source, flags);
+    let match: RegExpExecArray | null;
+    while ((match = globalPattern.exec(text)) !== null) {
+      if (match.index > latest) {
+        latest = match.index;
+      }
+      if (match.index === globalPattern.lastIndex) {
+        globalPattern.lastIndex++;
+      }
+    }
+  }
+  return latest;
+}
+
+/**
  * Parses the raw assistant text from a probe query and returns a verdict.
- * Matching is order-sensitive: NOT_COMPLETED patterns are checked first to
- * avoid false positives when the model says "NOT COMPLETED".
+ *
+ * For terminal autopilot, the buffer typically contains the echoed prompt
+ * followed by the model's response. We scan for the rightmost match of
+ * either COMPLETED or NOT_COMPLETED tokens — whichever appears later in
+ * the text wins. This avoids the prompt-echo false positive where the
+ * literal answer tokens inside the probe prompt are matched first.
  */
 export function parseCompletionVerdict(text: string): CompletionVerdict {
   const trimmed = text.trim();
@@ -33,19 +66,16 @@ export function parseCompletionVerdict(text: string): CompletionVerdict {
     return 'UNPARSED';
   }
 
-  for (const pattern of NOT_COMPLETED_PATTERNS) {
-    if (pattern.test(trimmed)) {
-      return 'NOT_COMPLETED';
-    }
-  }
+  const completedAt = findLatestMatchIndex(trimmed, COMPLETED_PATTERNS);
+  const notCompletedAt = findLatestMatchIndex(trimmed, NOT_COMPLETED_PATTERNS);
 
-  for (const pattern of COMPLETED_PATTERNS) {
-    if (pattern.test(trimmed)) {
-      return 'COMPLETED';
-    }
+  if (completedAt < 0 && notCompletedAt < 0) {
+    return 'UNPARSED';
   }
-
-  return 'UNPARSED';
+  if (notCompletedAt > completedAt) {
+    return 'NOT_COMPLETED';
+  }
+  return 'COMPLETED';
 }
 
 /**

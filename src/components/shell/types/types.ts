@@ -37,11 +37,18 @@ export type ShellAutopilotAbortMessage = {
   type: 'autopilot-abort';
 };
 
+export type ShellAutopilotAttachMessage = {
+  type: 'autopilot-attach';
+  idleMs?: number;
+  maxContinue?: number;
+};
+
 export type ShellOutgoingMessage =
   | ShellInitMessage
   | ShellResizeMessage
   | ShellInputMessage
-  | ShellAutopilotAbortMessage;
+  | ShellAutopilotAbortMessage
+  | ShellAutopilotAttachMessage;
 
 export type ShellIncomingMessage =
   | { type: 'output'; data: string }

@@ -20,6 +20,8 @@ type ShellIncomingMessage = {
   provider?: string;
   initialCommand?: string;
   isPlainShell?: boolean;
+  idleMs?: number;
+  maxContinue?: number;
   autopilot?: {
     execution?: boolean;
     idleMs?: number;
@@ -281,6 +283,7 @@ export function handleShellConnection(
         const autopilotCfg = data.autopilot;
         let autopilotDriver: ShellAutopilotDriver | null = null;
         if (autopilotCfg?.execution === true) {
+          console.log('[autopilot-shell] attaching driver: idleMs=' + autopilotCfg.idleMs + ' maxContinue=' + autopilotCfg.maxContinue);
           autopilotDriver = new ShellAutopilotDriver({
             writeToPty: (d) => shellProcess?.write(d),
             sendWsEvent: (payload) => {
@@ -455,6 +458,36 @@ export function handleShellConnection(
         return;
       }
 
+      if (data.type === 'autopilot-attach') {
+        if (!ptySessionKey) {
+          return;
+        }
+        const session = ptySessionsMap.get(ptySessionKey);
+        if (!session || session.autopilotDriver || !shellProcess) {
+          return;
+        }
+        const idleMsCfg = typeof data.idleMs === 'number' && data.idleMs > 0 ? data.idleMs : 10000;
+        const maxContinueCfg = typeof data.maxContinue === 'number' && data.maxContinue > 0 ? data.maxContinue : 5;
+        console.log('[autopilot-shell] hot-attaching driver: idleMs=' + idleMsCfg + ' maxContinue=' + maxContinueCfg);
+        const driver = new ShellAutopilotDriver({
+          writeToPty: (d) => shellProcess?.write(d),
+          sendWsEvent: (payload) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify(payload));
+            }
+          },
+          stripAnsi: dependencies.stripAnsiSequences,
+          config: {
+            idleMs: idleMsCfg,
+            maxContinue: maxContinueCfg,
+            probePrompt: DEFAULT_PROBE_PROMPT,
+          },
+        });
+        session.autopilotDriver = driver;
+        driver.start();
+        return;
+      }
+
       if (data.type === 'resize') {
         if (shellProcess) {
           shellProcess.resize(readNumber(data.cols, 80), readNumber(data.rows, 24));
@@ -482,6 +515,13 @@ export function handleShellConnection(
     const session = ptySessionsMap.get(ptySessionKey);
     if (!session) {
       return;
+    }
+
+    // Stop autopilot driver when client disconnects so its scheduled
+    // probe/continue actions don't keep firing against a closed socket.
+    if (session.autopilotDriver) {
+      session.autopilotDriver.abort();
+      session.autopilotDriver = null;
     }
 
     session.ws = null;

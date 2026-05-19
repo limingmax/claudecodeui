@@ -63,6 +63,10 @@ export default function Shell({
     disconnectFromShell,
     openAuthUrlInBrowser,
     copyAuthUrlToClipboard,
+    autopilotRuntimeState,
+    autopilotRef,
+    sendAutopilotAbort,
+    sendAutopilotAttach,
   } = useShellRuntime({
     selectedProject,
     selectedSession,
@@ -74,6 +78,40 @@ export default function Shell({
     onProcessComplete,
     onOutputRef,
   });
+
+  const [autopilotToggles, setAutopilotToggles] = useState<ShellAutopilotToggles>({ execution: true });
+  const [autopilotLimits, setAutopilotLimits] = useState<ShellAutopilotLimits>({ idleMs: 10000, maxContinue: 5 });
+
+  useEffect(() => {
+    autopilotRef.current = {
+      execution: autopilotToggles.execution,
+      idleMs: autopilotLimits.idleMs,
+      maxContinue: autopilotLimits.maxContinue,
+    };
+  }, [autopilotRef, autopilotToggles.execution, autopilotLimits.idleMs, autopilotLimits.maxContinue]);
+
+  // Hot-attach/detach driver when toggle flips while connected.
+  const prevExecutionRef = useRef(autopilotToggles.execution);
+  useEffect(() => {
+    if (!isConnected) {
+      prevExecutionRef.current = autopilotToggles.execution;
+      return;
+    }
+    const prev = prevExecutionRef.current;
+    const next = autopilotToggles.execution;
+    if (prev !== next) {
+      if (next) {
+        sendAutopilotAttach(autopilotLimits.idleMs, autopilotLimits.maxContinue);
+      } else {
+        sendAutopilotAbort();
+      }
+      prevExecutionRef.current = next;
+    }
+  }, [autopilotToggles.execution, autopilotLimits.idleMs, autopilotLimits.maxContinue, isConnected, sendAutopilotAttach, sendAutopilotAbort]);
+
+  const handleAutopilotAbort = useCallback(() => {
+    sendAutopilotAbort();
+  }, [sendAutopilotAbort]);
 
   // Check xterm.js buffer for CLI prompt patterns (❯ N. label)
   const checkBufferForPrompt = useCallback(() => {
@@ -266,6 +304,16 @@ export default function Shell({
         restartLabel={t('shell.actions.restart')}
         restartTitle={t('shell.actions.restartTitle')}
         disableRestart={isRestarting || isConnected}
+      />
+
+      <ShellAutopilotPanel
+        toggles={autopilotToggles}
+        limits={autopilotLimits}
+        autopilotState={autopilotRuntimeState}
+        onTogglesChange={setAutopilotToggles}
+        onLimitsChange={setAutopilotLimits}
+        onAbort={handleAutopilotAbort}
+        isConnected={isConnected}
       />
 
       <div className="relative flex-1 overflow-hidden p-2">
