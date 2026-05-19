@@ -40,10 +40,11 @@ const router = express.Router();
  */
 async function checkTaskMasterInstallation() {
     return new Promise((resolve) => {
-        // Check if task-master command is available
-        const child = spawn('which', ['task-master'], { 
+        // Check if task-master command is available (cross-platform: `where` on Windows, `which` elsewhere)
+        const lookupCmd = process.platform === 'win32' ? 'where' : 'which';
+        const child = spawn(lookupCmd, ['task-master'], {
             stdio: ['ignore', 'pipe', 'pipe'],
-            shell: true 
+            shell: true
         });
         
         let output = '';
