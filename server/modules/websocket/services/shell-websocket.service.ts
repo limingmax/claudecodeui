@@ -479,7 +479,14 @@ export function handleShellConnection(
 
       if (data.type === 'autopilot-abort') {
         if (ptySessionKey) {
-          ptySessionsMap.get(ptySessionKey)?.autopilotDriver?.abort();
+          const session = ptySessionsMap.get(ptySessionKey);
+          if (session?.autopilotDriver) {
+            session.autopilotDriver.abort();
+            // Drop the reference so a subsequent autopilot-attach can spin up
+            // a fresh driver. Without this, re-enabling the toggle silently
+            // no-ops because the slot is still occupied.
+            session.autopilotDriver = null;
+          }
         }
         return;
       }
@@ -489,8 +496,15 @@ export function handleShellConnection(
           return;
         }
         const session = ptySessionsMap.get(ptySessionKey);
-        if (!session || session.autopilotDriver || !shellProcess) {
+        if (!session || !shellProcess) {
           return;
+        }
+        // If a driver already exists (e.g. user toggled off then on without
+        // sending an explicit abort first), tear it down before creating
+        // the replacement.
+        if (session.autopilotDriver) {
+          session.autopilotDriver.abort();
+          session.autopilotDriver = null;
         }
         const idleMsCfg = typeof data.idleMs === 'number' && data.idleMs > 0 ? data.idleMs : 10000;
         const maxContinueCfg = typeof data.maxContinue === 'number' && data.maxContinue > 0 ? data.maxContinue : 5;
