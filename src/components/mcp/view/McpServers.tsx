@@ -86,7 +86,7 @@ function TeamMcpFeatureCard() {
             rel="noopener noreferrer"
             className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary transition-colors hover:underline"
           >
-            Available with CloudCLI Pro
+            Available with AutoClaudeCLI Pro
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>

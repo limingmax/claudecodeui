@@ -250,6 +250,36 @@ export function handleShellConnection(
           }
 
           existingSession.ws = ws;
+
+          // Reconnect path: rebuild autopilot driver if init payload requests it.
+          // (The previous ws close had aborted+nulled the driver.)
+          const reconAutopilot = data.autopilot;
+          if (reconAutopilot?.execution === true && !existingSession.autopilotDriver) {
+            const idleMsCfg = typeof reconAutopilot.idleMs === 'number' && reconAutopilot.idleMs > 0 ? reconAutopilot.idleMs : 10000;
+            const maxContinueCfg = typeof reconAutopilot.maxContinue === 'number' && reconAutopilot.maxContinue > 0 ? reconAutopilot.maxContinue : 5;
+            const maxReviewFixCfg = typeof reconAutopilot.maxReviewFix === 'number' && reconAutopilot.maxReviewFix > 0 ? reconAutopilot.maxReviewFix : 5;
+            console.log('[autopilot-shell] reconnect: rebuilding driver idleMs=' + idleMsCfg + ' maxContinue=' + maxContinueCfg + ' reviewFix=' + reconAutopilot.reviewFix + ' commit=' + reconAutopilot.commit);
+            const driver = new ShellAutopilotDriver({
+              writeToPty: (d) => existingSession.pty.write(d),
+              sendWsEvent: (payload) => {
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify(payload));
+                }
+              },
+              stripAnsi: dependencies.stripAnsiSequences,
+              config: {
+                idleMs: idleMsCfg,
+                maxContinue: maxContinueCfg,
+                maxReviewFix: maxReviewFixCfg,
+                probePrompt: DEFAULT_PROBE_PROMPT,
+                reviewPrompt: DEFAULT_SHELL_REVIEW_PROMPT,
+                reviewFixEnabled: reconAutopilot.reviewFix === true,
+                commitEnabled: reconAutopilot.commit === true,
+              },
+            });
+            existingSession.autopilotDriver = driver;
+            driver.start();
+          }
           return;
         }
 

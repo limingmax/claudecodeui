@@ -1,7 +1,7 @@
 import type { AutopilotConfig, AutopilotLimits, AutopilotToggles } from './types.js';
 
 export const DEFAULT_PROBE_PROMPT =
-  "上一任务是否已完成？只能回答 'COMPLETED' 或 'NOT_COMPLETED'，不要解释，不要其他任何文字。";
+  "[系统探针] 请用一行回答：你刚才的任务是否已完全做完？只输出 COMPLETED 或 NOT_COMPLETED，不要任何其他文字、解释或修饰。";
 
 export const DEFAULT_REVIEW_PROMPT =
   '请对上述代码变更进行评审，按 critical/high/medium/low 严重度返回 findings，' +

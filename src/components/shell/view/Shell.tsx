@@ -79,7 +79,7 @@ export default function Shell({
     onOutputRef,
   });
 
-  const [autopilotToggles, setAutopilotToggles] = useState<ShellAutopilotToggles>({ execution: true, reviewFix: true, commit: true });
+  const [autopilotToggles, setAutopilotToggles] = useState<ShellAutopilotToggles>({ execution: false, reviewFix: false, commit: false });
   const [autopilotLimits, setAutopilotLimits] = useState<ShellAutopilotLimits>({ idleMs: 10000, maxContinue: 5, maxReviewFix: 5 });
 
   useEffect(() => {
@@ -94,16 +94,49 @@ export default function Shell({
   }, [autopilotRef, autopilotToggles.execution, autopilotToggles.reviewFix, autopilotToggles.commit, autopilotLimits.idleMs, autopilotLimits.maxContinue, autopilotLimits.maxReviewFix]);
 
   // Hot-attach/detach driver when toggle flips while connected.
+  //
+  // Initial attach on connect is handled by the `init` message (sent in
+  // useShellConnection.onopen, which includes the autopilot config from
+  // autopilotRef). This effect handles 3 cases after the connection is live:
+  //   1. Master switch OFF → ON: send autopilot-attach with current config
+  //   2. Master switch ON → OFF: send autopilot-abort
+  //   3. While master is ON, reviewFix/commit toggles change: re-attach
+  //      with the new config so the server-side driver picks them up
+  //      mid-session (otherwise the toggles only take effect on the next
+  //      OFF→ON cycle, which the user found surprising).
   const prevExecutionRef = useRef(autopilotToggles.execution);
+  const prevReviewFixRef = useRef(autopilotToggles.reviewFix);
+  const prevCommitRef = useRef(autopilotToggles.commit);
+  const prevConnectedRef = useRef(false);
   useEffect(() => {
     if (!isConnected) {
+      prevConnectedRef.current = false;
       prevExecutionRef.current = autopilotToggles.execution;
+      prevReviewFixRef.current = autopilotToggles.reviewFix;
+      prevCommitRef.current = autopilotToggles.commit;
       return;
     }
+
+    const justConnected = !prevConnectedRef.current;
+    prevConnectedRef.current = true;
+
+    if (justConnected) {
+      prevExecutionRef.current = autopilotToggles.execution;
+      prevReviewFixRef.current = autopilotToggles.reviewFix;
+      prevCommitRef.current = autopilotToggles.commit;
+      return;
+    }
+
     const prev = prevExecutionRef.current;
     const next = autopilotToggles.execution;
+    const stageChanged =
+      prevReviewFixRef.current !== autopilotToggles.reviewFix ||
+      prevCommitRef.current !== autopilotToggles.commit;
+
     if (prev !== next) {
+      console.log('[shell-autopilot] master toggle change', { prev, next, idleMs: autopilotLimits.idleMs });
       if (next) {
+        console.log('[shell-autopilot] sending autopilot-attach (master ON)');
         sendAutopilotAttach({
           idleMs: autopilotLimits.idleMs,
           maxContinue: autopilotLimits.maxContinue,
@@ -112,10 +145,28 @@ export default function Shell({
           commit: autopilotToggles.commit,
         });
       } else {
+        console.log('[shell-autopilot] sending autopilot-abort (master OFF)');
         sendAutopilotAbort();
       }
       prevExecutionRef.current = next;
+    } else if (next && stageChanged) {
+      // Master still ON, but a stage toggle changed → re-attach so the new
+      // config takes effect immediately. Server tears down the old driver.
+      console.log('[shell-autopilot] stage toggle change → re-attach', {
+        reviewFix: autopilotToggles.reviewFix,
+        commit: autopilotToggles.commit,
+      });
+      sendAutopilotAttach({
+        idleMs: autopilotLimits.idleMs,
+        maxContinue: autopilotLimits.maxContinue,
+        maxReviewFix: autopilotLimits.maxReviewFix,
+        reviewFix: autopilotToggles.reviewFix,
+        commit: autopilotToggles.commit,
+      });
     }
+
+    prevReviewFixRef.current = autopilotToggles.reviewFix;
+    prevCommitRef.current = autopilotToggles.commit;
   }, [autopilotToggles.execution, autopilotToggles.reviewFix, autopilotToggles.commit, autopilotLimits.idleMs, autopilotLimits.maxContinue, autopilotLimits.maxReviewFix, isConnected, sendAutopilotAttach, sendAutopilotAbort]);
 
   const handleAutopilotAbort = useCallback(() => {
